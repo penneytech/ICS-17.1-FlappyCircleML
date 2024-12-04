@@ -2,3 +2,43 @@ html, body {
   height: 100%;
   width: 100%;
 }
+
+#container {
+  display: flex;
+}
+
+#gameCanvas {
+  flex: 1;
+}
+
+#mlData {
+  flex: 1;
+  margin-left: 20px;
+}
+
+#performanceTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#performanceTable td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+#performanceTable tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+#performanceTable tr:hover {
+  background-color: #f1f1f1;
+}
+
+#performanceTable td:first-child {
+  font-weight: bold;
+}
+
+#framerateSlider {
+  width: 100%;
+  margin-top: 10px;
+}

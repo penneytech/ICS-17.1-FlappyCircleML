@@ -4,19 +4,79 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width">
-  <title>replit</title>
+  <title>RL Agent Game</title>
   <link href="style.css" rel="stylesheet" type="text/css" />
 </head>
+
 <body>
 
-<Canvas 
-  id="myCanvas" 
-  width=480 
-  height=480
-  style="border: 1px solid #000000; background-color: #cfcfcf;"> 
-</Canvas>
-  
-  
+  <div id="container">
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas" width="480" height="480" style="border: 1px solid #000000; background-color: #cfcfcf;">
+    </canvas>
+
+    <!-- Agent Performance Metrics -->
+    <div id="mlData">
+      <h3>Performance Metrics</h3>
+      <table>
+        <tr>
+          <td>Total Episodes:</td>
+          <td id="totalEpisodes">0</td>
+        </tr>
+        <tr>
+          <td>Total Games:</td>
+          <td id="totalGames">0</td>
+        </tr>
+        <tr>
+          <td>Average Score:</td>
+          <td id="averageScore">0</td>
+        </tr>
+        <tr>
+          <td>Highest Score:</td>
+          <td id="highestScore">0</td>
+        </tr>
+        <tr>
+          <td>Positive Rewards:</td>
+          <td id="positiveRewards">0</td>
+        </tr>
+        <tr>
+          <td>Negative Rewards:</td>
+          <td id="negativeRewards">0</td>
+        </tr>
+        <tr>
+          <td>Epsilon:</td>
+          <td id="epsilon">0</td>
+        </tr>
+        <tr>
+          <td>Learning Rate:</td>
+          <td id="learningRate">0</td>
+        </tr>
+        <tr>
+          <td>Discount Factor:</td>
+          <td id="discountFactor">0</td>
+        </tr>
+        <tr>
+          <td>Gap Top Y:</td>
+          <td id="gapTopY">0</td>
+        </tr>
+        <tr>
+          <td>Gap Bottom Y:</td>
+          <td id="gapBottomY">0</td>
+        </tr>
+        <!-- New Rows for gapCenterY and dy -->
+        <tr>
+          <td>Gap Center Y:</td>
+          <td id="gapCenterY">0</td>
+        </tr>
+        <tr>
+          <td>Distance to Gap Center (dy):</td>
+          <td id="dy">0</td>
+        </tr>
+      </table>
+
+    </div>
+  </div>
+
   <script src="script.js"></script>
 </body>
 

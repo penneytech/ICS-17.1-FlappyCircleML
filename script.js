@@ -5,55 +5,123 @@ let player;
 let spacebar = false;
 let counter = 0;
 let episodes = 0;
-let totalReward = 0;
-let survivalTime = 0;
-let agent;
+let totalGames = 0;
+let totalScore = 0;
 let highScore = 0; // Track the highest score achieved
 
-let speedmultiplier = 1;
-let gapSize = 250; // Control the size of the gap
+let positiveRewards = 0;
+let negativeRewards = 0;
+
+let speedMultiplier = 1; // Simulation speed multiplier
+let gapSize = 200; // Adjusted gap size
+
+let positiveRewardsMultiplierCenter = 10; // Multiplier for proximity rewards
+
+let canvas, ctx;
+let backgroundImg = new Image();
+backgroundImg.src = "background.jpg"; // Load the background image once
+
+// Agent parameters
+let agent;
+
+// DOM elements for performance metrics
+let totalEpisodesElem, totalGamesElem, averageScoreElem, highestScoreElem;
+let epsilonElem, learningRateElem, discountFactorElem;
+let positiveRewardsElem, negativeRewardsElem;
+let gapTopYElem, gapBottomYElem;
+let gapCenterYElem, dyElem; // Elements for gapCenterY and dy
+
+let collisionOccurred = false; // Flag to track if collision has occurred
+
+// Variables for timing
+let lastTime = 0;
 
 function init() {
-  canvas = document.getElementById("myCanvas");
+  canvas = document.getElementById("gameCanvas");
   ctx = canvas.getContext("2d");
 
+  // Initialize agent
   agent = new RLAgent();
 
-  player = new Circle(250, canvas.height / 2, 10, "yellow", 0.1);
-  // Initialize the first rectangle with random gap position
-  rectangle = new RectangleTemplate(480, randomGapPosition(gapSize), 50, 480, "green"); // 480px tall
-  rectangleTop = new RectangleTemplate(480, rectangle.y - gapSize, 50, 480, "green"); // Ensure initial gap exists
+  // Get DOM elements for updating performance metrics
+  totalEpisodesElem = document.getElementById("totalEpisodes");
+  totalGamesElem = document.getElementById("totalGames");
+  averageScoreElem = document.getElementById("averageScore");
+  highestScoreElem = document.getElementById("highestScore");
+  epsilonElem = document.getElementById("epsilon");
+  learningRateElem = document.getElementById("learningRate");
+  discountFactorElem = document.getElementById("discountFactor");
+  positiveRewardsElem = document.getElementById("positiveRewards");
+  negativeRewardsElem = document.getElementById("negativeRewards");
+  gapTopYElem = document.getElementById("gapTopY");
+  gapBottomYElem = document.getElementById("gapBottomY");
+  gapCenterYElem = document.getElementById("gapCenterY"); // New element
+  dyElem = document.getElementById("dy"); // New element
+
+  // Update initial agent parameters
+  epsilonElem.textContent = agent.epsilon.toFixed(2);
+  learningRateElem.textContent = agent.learnRate;
+  discountFactorElem.textContent = agent.discountFactor;
+
+  startGame();
+
+  lastTime = performance.now();
 
   window.requestAnimationFrame(gameLoop);
+}
+
+function startGame() {
+  if (!player) {
+    player = new Circle(250, canvas.height / 2, 10, "yellow", 0.1);
+  }
+  // Initialize the first rectangle with random gap position
+  let gapPosition = randomGapPosition(gapSize);
+  rectangle = new RectangleTemplate(
+    480,
+    gapPosition + gapSize,
+    50,
+    canvas.height - (gapPosition + gapSize),
+    "green"
+  ); // Bottom rectangle
+  rectangleTop = new RectangleTemplate(480, 0, 50, gapPosition, "green"); // Top rectangle
+
+  // Update the gap Y coordinates in the table
+  gapTopYElem.textContent = rectangleTop.h;
+  gapBottomYElem.textContent = rectangle.y;
+
+  // Log the new gap coordinates
+  console.log(`CURRENT GAP: ${rectangleTop.h} - ${rectangle.y}`);
 }
 
 class RLAgent {
   constructor() {
     this.qTable = {};
-    this.epsilon = 0.1;
-    this.learnRate = 0.01;
-    this.discountFactor = 0.9;
+    this.epsilon = 0.1; // Exploration rate
+    this.learnRate = 0.01; // Learning rate
+    this.discountFactor = 0.9; // Discount factor for future rewards
   }
 
   getState(player, rectangle, rectangleTop) {
     const dx = rectangle.x - player.x;
     const gapStart = rectangleTop.h;
     const gapEnd = rectangle.y;
-    const dy = player.y - gapStart;
-    return `${Math.floor(player.y)},${Math.floor(player.velocity)},${Math.floor(dx)},${Math.floor(dy)},${Math.floor(gapEnd - gapStart)}`;
+    const gapCenterY = (gapStart + gapEnd) / 2;
+    const dy = player.y - gapCenterY;
+    return `${Math.floor(player.y)},${Math.floor(
+      player.velocity
+    )},${Math.floor(dx)},${Math.floor(dy)},${Math.floor(gapEnd - gapStart)}`;
   }
 
-  chooseAction(state, player, gapTop, gapBottom) {
-    const belowGap = player.y > gapBottom;
-    const falling = player.velocity > 0;
-
+  chooseAction(state) {
     if (Math.random() < this.epsilon) {
-      return belowGap || falling ? 1 : 0; // Explore
+      // Exploration: random action
+      return Math.random() < 0.5 ? 1 : 0;
     }
 
+    // Exploitation: choose the best known action
     const qJump = this.qTable[state]?.jump || 0;
     const qStay = this.qTable[state]?.stay || 0;
-    return qJump > qStay && (belowGap || falling) ? 1 : 0; // Exploit
+    return qJump > qStay ? 1 : 0;
   }
 
   updateQValue(state, action, reward, nextState) {
@@ -61,7 +129,8 @@ class RLAgent {
       this.qTable[nextState]?.jump || 0,
       this.qTable[nextState]?.stay || 0
     );
-    const currentQ = this.qTable[state]?.[action === 1 ? "jump" : "stay"] || 0;
+    const currentQ =
+      this.qTable[state]?.[action === 1 ? "jump" : "stay"] || 0;
     const newQ =
       currentQ +
       this.learnRate * (reward + this.discountFactor * maxNextQ - currentQ);
@@ -85,83 +154,160 @@ function RectangleTemplate(x, y, w, h, color) {
   this.w = w;
   this.h = h;
   this.color = color;
-  this.scored = false; // New property to track scoring
+  this.scored = false; // Property to track scoring
+  this.proximityRewardGiven = false; // Track if proximity reward has been given
 }
 
-// Game loop
 function gameLoop(timestamp) {
   window.requestAnimationFrame(gameLoop);
+
+  const deltaTime = (timestamp - lastTime) / 1000; // Convert to seconds
+  lastTime = timestamp;
+
+  update(deltaTime);
+  render();
+}
+
+function update(deltaTime) {
+  const adjustedDeltaTime = deltaTime * speedMultiplier;
+
+  // Calculate gap center Y-coordinate
+  let gapCenterY = (rectangleTop.h + rectangle.y) / 2;
+  let dy = player.y - gapCenterY;
+
+  // Update the DOM elements
+  gapCenterYElem.textContent = gapCenterY.toFixed(2);
+  dyElem.textContent = dy.toFixed(2);
+
+  // Agent decision-making every frame
+  const state = agent.getState(player, rectangle, rectangleTop);
+  const action = agent.chooseAction(state);
+
+  if (action === 1) spacebar = true;
+
+  // Proceed with game updates
+  playerPosition(adjustedDeltaTime);
+  rectanglePosition(adjustedDeltaTime);
+
+  const nextState = agent.getState(player, rectangle, rectangleTop);
+  let reward = 0;
+
+  // Collision detection
+  let collision = checkCollision(rectangle) || checkCollision(rectangleTop);
+
+  // Compute distance to gap center
+  let distanceToCenter = Math.abs(dy);
+
+  // Normalize the distance (gapSize / 2 is the maximum possible distance within the gap)
+  let normalizedDistance = distanceToCenter / (gapSize / 2);
+
+  // Ensure normalizedDistance is between 0 and 1
+  normalizedDistance = Math.min(normalizedDistance, 1);
+
+  // Compute proximity reward inversely proportional to the normalized distance
+  let proximityReward = Math.max(
+    0,
+    positiveRewardsMultiplierCenter * (1 - normalizedDistance)
+  );
+
+  // Apply proximity reward only once per gap
+  if (!rectangle.proximityRewardGiven && player.x > rectangle.x) {
+    reward += proximityReward;
+    positiveRewards += proximityReward;
+    rectangle.proximityRewardGiven = true;
+
+    console.log(
+      `Proximity Reward Given. Distance to center: ${distanceToCenter.toFixed(
+        2
+      )}, Proximity Reward: ${proximityReward.toFixed(2)}`
+    );
+  }
+
+  // Check for collision
+  if (!collisionOccurred && collision) {
+    // Apply negative reward for collision
+    let negativeReward = -100;
+    reward += negativeReward;
+    negativeRewards += negativeReward;
+
+    collisionOccurred = true;
+    rectangle.color = "red";
+    rectangleTop.color = "red";
+
+    if (counter > highScore) {
+      highScore = counter;
+    }
+    counter = 0;
+
+    totalGames++;
+    totalScore += counter;
+    updateMetrics();
+
+    console.log("Collision detected. Rectangles turned red.");
+  }
+
+  // Reward when passing through the gap without collision
+  if (
+    !collisionOccurred &&
+    !rectangle.scored &&
+    player.x - player.radius > rectangle.x + rectangle.w
+  ) {
+    rectangle.scored = true; // Mark this gate as scored
+
+    // Fixed reward for passing through the gap
+    let successReward = 100;
+
+    // Apply success reward
+    reward += successReward;
+    positiveRewards += successReward;
+
+    // Increment score
+    counter++;
+
+    console.log(
+      `Passed through gap successfully. Success Reward: ${successReward}`
+    );
+  }
+
+  agent.updateQValue(state, action, reward, nextState);
+
+  // Remove the positive reward calculation from every frame
+}
+
+function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   background();
 
-  const gapTop = rectangleTop.h;
-  const gapBottom = rectangle.y;
+  // Draw player
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+  ctx.fillStyle = player.color;
+  ctx.fill();
 
-  const state = agent.getState(player, rectangle, rectangleTop);
-  const action = agent.chooseAction(state, player, gapTop, gapBottom);
+  // Draw rectangles
+  ctx.beginPath();
+  ctx.rect(rectangle.x, rectangle.y, rectangle.w, rectangle.h);
+  ctx.fillStyle = rectangle.color;
+  ctx.fill();
 
-  if (action === 1) spacebar = true;
+  ctx.beginPath();
+  ctx.rect(rectangleTop.x, rectangleTop.y, rectangleTop.w, rectangleTop.h);
+  ctx.fillStyle = rectangleTop.color;
+  ctx.fill();
 
-  playerPosition();
-  rectanglePosition();
-  rectangleTopPosition();
-
-  drawScores(); // Display scores on screen
-
-  // Collision and alignment
-  let reward = 1;
-
-  // Check for collision with both rectangles
-  if (checkCollision(rectangle) || checkCollision(rectangleTop)) {
-    reward = -100;
-    handleRestart(state, action, reward, gapTop, gapBottom);
-    return;
-  }
-
-  if (rectangle.x <= player.x + player.radius &&
-      rectangle.x + rectangle.w >= player.x - player.radius) {
-    if (isInGap(player, gapTop, gapBottom)) {
-      reward += 100;
-    }
-  }
-
-  const nextState = agent.getState(player, rectangle, rectangleTop);
-  agent.updateQValue(state, action, reward, nextState);
-
-  survivalTime++;
+  // Draw scores
+  drawScores();
 }
 
-// Handle restarting the game
-function handleRestart(state, action, reward, gapTop, gapBottom) {
-  totalReward += reward;
-  episodes++;
-
-  console.log(`Episode: ${episodes}`);
-  console.log(`Total Reward: ${totalReward}`);
-  console.log(`Survival Time: ${survivalTime}`);
-  console.log(`Gap Coordinates - Top: ${gapTop}, Bottom: ${gapBottom}`);
-  console.log(`Q-Table Size: ${Object.keys(agent.qTable).length}`);
-
-  survivalTime = 0;
-  player = new Circle(250, canvas.height / 2, 10, "yellow", 0.1);
-  rectangle = new RectangleTemplate(480, randomGapPosition(gapSize), 50, 480, "green"); // 480px tall
-  rectangleTop = new RectangleTemplate(480, rectangle.y - gapSize, 50, 480, "green"); // Ensure initial gap exists
-
-  // Reset counter and scoring flag for new game
-  counter = 0;
-  rectangle.scored = false; // Ensure the rectangle is ready for scoring
-}
-
-// Player position update
-function playerPosition() {
-  if (player.y > 480) {
+function playerPosition(deltaTime) {
+  if (player.y > canvas.height - player.radius) {
     player.velocity = 0;
-    player.y = 480;
+    player.y = canvas.height - player.radius;
   }
-  if (player.y < 0) {
+  if (player.y < player.radius) {
     player.velocity = 0;
-    player.y = 0;
+    player.y = player.radius;
   }
 
   if (spacebar) {
@@ -169,78 +315,58 @@ function playerPosition() {
     spacebar = false;
   }
 
-  ctx.beginPath();
-  ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-  ctx.fillStyle = player.color;
-  ctx.fill();
-
-  player.y = player.y + player.velocity;
-  player.velocity += 0.25;
+  player.y += player.velocity * deltaTime * 60; // Adjust movement by deltaTime
+  player.velocity += 0.25 * deltaTime * 60; // Gravity effect
 }
 
-// Update the rectangles and scoring
-function rectanglePosition() {
-  ctx.beginPath();
-  ctx.rect(rectangle.x, rectangle.y, rectangle.w, rectangle.h);
-  ctx.fillStyle = rectangle.color;
-  ctx.fill();
-
-  rectangle.x -= 4 * speedmultiplier; // Move rectangle based on speed multiplier
-
-  if (rectangle.x + rectangle.w < 0 && !rectangle.scored) {
-    counter++; // Increment score
-    rectangle.scored = true; // Mark this gate as scored
-    if (counter > highScore) {
-      highScore = counter; // Update high score if needed
-    }
-  }
+function rectanglePosition(deltaTime) {
+  // Move rectangles together
+  rectangle.x -= 4 * deltaTime * 60; // Adjust movement by deltaTime
+  rectangleTop.x = rectangle.x; // Synchronize top rectangle's x position
 
   if (rectangle.x < -50) {
     rectangle.x = 480;
-    // Randomize the gap and rectangle height on reset
-    rectangle.y = randomGapPosition(gapSize); // Random position for bottom rectangle
-    rectangleTop.h = randomInteger(100, 250); // Random height for top rectangle
-    rectangleTop.y = rectangle.y - rectangleTop.h; // Position the top rectangle based on bottom rectangle's height
-    rectangle.scored = false; // Reset scoring flag
+    rectangleTop.x = rectangle.x; // Reset top rectangle's x position
+
+    // Randomize the gap and rectangle heights on reset
+    let gapPosition = randomGapPosition(gapSize);
+    rectangle.y = gapPosition + gapSize;
+    rectangle.h = canvas.height - rectangle.y;
+    rectangleTop.h = gapPosition;
+    rectangleTop.y = 0; // Top rectangle starts from y=0
+
+    // Reset scoring flags
+    rectangle.scored = false;
+    rectangle.proximityRewardGiven = false;
+
+    // Reset collision flag and rectangle colors
+    collisionOccurred = false;
+    rectangle.color = "green";
+    rectangleTop.color = "green";
+
+    // Start a new episode
+    episodes++;
+    updateMetrics();
+
+    // Update the gap Y coordinates in the table
+    gapTopYElem.textContent = rectangleTop.h;
+    gapBottomYElem.textContent = rectangle.y;
+
+    // Log the new gap coordinates
+    console.log(`CURRENT GAP: ${rectangleTop.h} - ${rectangle.y}`);
+    console.log("Starting new episode.");
   }
 }
 
-// Update the top rectangle position
-function rectangleTopPosition() {
-  ctx.beginPath();
-  ctx.rect(rectangleTop.x, rectangleTop.y, rectangleTop.w, rectangleTop.h);
-  ctx.fillStyle = rectangleTop.color;
-  ctx.fill();
-
-  rectangleTop.x -= 4 * speedmultiplier; // Move rectangle based on speed multiplier
-
-  if (rectangleTop.x < -50) {
-    rectangleTop.x = 480;
-    // Randomize the gap position when rectangleTop resets
-    rectangleTop.h = randomInteger(100, 250);
-    rectangleTop.y = rectangle.y - rectangleTop.h; // Correct the gap position after reset
-  }
-}
-
-// Check for collision with either rectangle
 function checkCollision(rect) {
   return (
     rect.x <= player.x + player.radius &&
     rect.x + rect.w >= player.x - player.radius &&
-    player.y + player.radius > rect.y && 
+    player.y + player.radius > rect.y &&
     player.y - player.radius < rect.y + rect.h
   );
 }
 
-// Check if the player is inside the gap
-function isInGap(circle, gapStart, gapEnd) {
-  return (
-    circle.y - circle.radius >= gapStart &&
-    circle.y + circle.radius <= gapEnd
-  );
-}
-
-// Draw the scores (current and high score)
 function drawScores() {
   ctx.font = "20px Arial";
   ctx.fillStyle = "black";
@@ -248,27 +374,36 @@ function drawScores() {
   ctx.fillText(`Score: ${counter}`, 10, 50);
 }
 
-// Helper function to generate random integers for positioning
 function randomInteger(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-// Generate a random position for the gap (to ensure it's within the screen bounds)
 function randomGapPosition(gapHeight) {
-  const maxY = canvas.height - gapHeight; // Ensure the gap stays within the visible area
-  return randomInteger(20, maxY);
+  const minGapStart = 20; // Gap must start at least at y=20
+  const maxGapStart = canvas.height - gapHeight - 20; // Gap must end at most at y=460
+  return randomInteger(minGapStart, maxGapStart);
 }
 
-// Detect key press for spacebar
 document.body.onkeydown = function (key) {
   if (key.keyCode === 32) {
     spacebar = true;
   }
 };
 
-// Background image rendering
 function background() {
-  img = new Image();
-  img.src = "background.jpg";
-  ctx.drawImage(img, 0, 0, 1000, 480);
+  ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height);
+}
+
+function updateMetrics() {
+  totalEpisodesElem.textContent = episodes;
+  totalGamesElem.textContent = totalGames;
+  averageScoreElem.textContent = (
+    totalScore / (totalGames || 1)
+  ).toFixed(2);
+  highestScoreElem.textContent = highScore;
+  positiveRewardsElem.textContent = positiveRewards.toFixed(2);
+  negativeRewardsElem.textContent = negativeRewards.toFixed(2);
+  epsilonElem.textContent = agent.epsilon.toFixed(2);
+  learningRateElem.textContent = agent.learnRate;
+  discountFactorElem.textContent = agent.discountFactor;
 }
