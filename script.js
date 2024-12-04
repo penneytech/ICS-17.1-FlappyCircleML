@@ -107,9 +107,11 @@ class RLAgent {
     const gapEnd = rectangle.y;
     const gapCenterY = (gapStart + gapEnd) / 2;
     const dy = player.y - gapCenterY;
+    const playery = player.y;
+
     return `${Math.floor(player.y)},${Math.floor(
       player.velocity
-    )},${Math.floor(dx)},${Math.floor(dy)},${Math.floor(gapEnd - gapStart)}`;
+    )},${Math.floor(dx)},${Math.floor(dy)},${Math.floor(gapEnd - gapStart)},${Math.floor(playery)}`;
   }
 
   chooseAction(state) {
@@ -178,6 +180,8 @@ function update(deltaTime) {
   // Update the DOM elements
   gapCenterYElem.textContent = gapCenterY.toFixed(2);
   dyElem.textContent = dy.toFixed(2);
+  playery.textContent = player.y.toFixed(2);
+
 
   // Agent decision-making every frame
   const state = agent.getState(player, rectangle, rectangleTop);
@@ -214,6 +218,7 @@ function update(deltaTime) {
   if (!rectangle.proximityRewardGiven && player.x > rectangle.x) {
     reward += proximityReward;
     positiveRewards += proximityReward;
+    updateMetrics();
     rectangle.proximityRewardGiven = true;
 
     console.log(
@@ -226,7 +231,7 @@ function update(deltaTime) {
   // Check for collision
   if (!collisionOccurred && collision) {
     // Apply negative reward for collision
-    let negativeReward = -100;
+    let negativeReward = -10;
     reward += negativeReward;
     negativeRewards += negativeReward;
 
@@ -255,12 +260,11 @@ function update(deltaTime) {
     rectangle.scored = true; // Mark this gate as scored
 
     // Fixed reward for passing through the gap
-    let successReward = 100;
+    let successReward = 1;
 
     // Apply success reward
     reward += successReward;
     positiveRewards += successReward;
-
     // Increment score
     counter++;
 
@@ -269,8 +273,9 @@ function update(deltaTime) {
     );
   }
 
+  updateMetrics();
   agent.updateQValue(state, action, reward, nextState);
-
+console.log("UPDATING AGENT", state, action, reward)
   // Remove the positive reward calculation from every frame
 }
 
@@ -304,10 +309,14 @@ function playerPosition(deltaTime) {
   if (player.y > canvas.height - player.radius) {
     player.velocity = 0;
     player.y = canvas.height - player.radius;
+    negativeRewards += -2;
+    updateMetrics()
   }
   if (player.y < player.radius) {
     player.velocity = 0;
     player.y = player.radius;
+    negativeRewards += -2;
+    updateMetrics();
   }
 
   if (spacebar) {
@@ -316,7 +325,7 @@ function playerPosition(deltaTime) {
   }
 
   player.y += player.velocity * deltaTime * 60; // Adjust movement by deltaTime
-  player.velocity += 0.25 * deltaTime * 60; // Gravity effect
+  player.velocity += 1 * deltaTime * 60; // Gravity effect
 }
 
 function rectanglePosition(deltaTime) {
