@@ -29,7 +29,7 @@ let totalEpisodesElem, totalGamesElem, averageScoreElem, highestScoreElem;
 let epsilonElem, learningRateElem, discountFactorElem;
 let positiveRewardsElem, negativeRewardsElem;
 let gapTopYElem, gapBottomYElem;
-let gapCenterYElem, dyElem; // Elements for gapCenterY and dy
+let gapCenterYElem, dyElem, playery; // Elements for gapCenterY, dy, and playery
 
 let collisionOccurred = false; // Flag to track if collision has occurred
 
@@ -55,8 +55,9 @@ function init() {
   negativeRewardsElem = document.getElementById("negativeRewards");
   gapTopYElem = document.getElementById("gapTopY");
   gapBottomYElem = document.getElementById("gapBottomY");
-  gapCenterYElem = document.getElementById("gapCenterY"); // New element
-  dyElem = document.getElementById("dy"); // New element
+  gapCenterYElem = document.getElementById("gapCenterY");
+  dyElem = document.getElementById("dy");
+  playery = document.getElementById("playery");
 
   // Update initial agent parameters
   epsilonElem.textContent = agent.epsilon.toFixed(2);
@@ -111,7 +112,7 @@ class RLAgent {
 
     return `${Math.floor(player.y)},${Math.floor(
       player.velocity
-    )},${Math.floor(dx)},${Math.floor(dy)},${Math.floor(gapEnd - gapStart)},${Math.floor(playery)}`;
+    )},${Math.floor(dx)},${Math.floor(dy)},${Math.floor(gapCenterY)},${Math.floor(playery)}`;
   }
 
   chooseAction(state) {
@@ -158,6 +159,7 @@ function RectangleTemplate(x, y, w, h, color) {
   this.color = color;
   this.scored = false; // Property to track scoring
   this.proximityRewardGiven = false; // Track if proximity reward has been given
+  this.centerRewardGiven = false; // New flag to track center reward
 }
 
 function gameLoop(timestamp) {
@@ -173,16 +175,6 @@ function gameLoop(timestamp) {
 function update(deltaTime) {
   const adjustedDeltaTime = deltaTime * speedMultiplier;
 
-  // Calculate gap center Y-coordinate
-  let gapCenterY = (rectangleTop.h + rectangle.y) / 2;
-  let dy = player.y - gapCenterY;
-
-  // Update the DOM elements
-  gapCenterYElem.textContent = gapCenterY.toFixed(2);
-  dyElem.textContent = dy.toFixed(2);
-  playery.textContent = player.y.toFixed(2);
-
-
   // Agent decision-making every frame
   const state = agent.getState(player, rectangle, rectangleTop);
   const action = agent.chooseAction(state);
@@ -190,11 +182,20 @@ function update(deltaTime) {
   if (action === 1) spacebar = true;
 
   // Proceed with game updates
-  playerPosition(adjustedDeltaTime);
+  let reward = 0; // Initialize reward
+  reward += playerPosition(adjustedDeltaTime); // Add reward from player position
   rectanglePosition(adjustedDeltaTime);
 
   const nextState = agent.getState(player, rectangle, rectangleTop);
-  let reward = 0;
+
+  // Update metrics for gap center and dy
+  let gapCenterY = (rectangleTop.h + rectangle.y) / 2;
+  let dy = player.y - gapCenterY;
+
+  // Update the DOM elements
+  gapCenterYElem.textContent = gapCenterY.toFixed(2);
+  dyElem.textContent = dy.toFixed(2);
+  playery.textContent = player.y.toFixed(2);
 
   // Collision detection
   let collision = checkCollision(rectangle) || checkCollision(rectangleTop);
@@ -217,8 +218,6 @@ function update(deltaTime) {
   // Apply proximity reward only once per gap
   if (!rectangle.proximityRewardGiven && player.x > rectangle.x) {
     reward += proximityReward;
-    positiveRewards += proximityReward;
-    updateMetrics();
     rectangle.proximityRewardGiven = true;
 
     console.log(
@@ -228,12 +227,30 @@ function update(deltaTime) {
     );
   }
 
+  // New code to give reward when distance to gap center is less than 50 pixels
+  if (
+    !rectangle.centerRewardGiven &&
+    player.x > rectangle.x &&
+    distanceToCenter < 50
+  ) {
+    let centerReward = 5; // Define the reward value
+
+    reward += centerReward;
+    positiveRewards += centerReward;
+
+    rectangle.centerRewardGiven = true; // Ensure reward is given only once per gap
+
+    console.log(
+      `Center Reward Given. Distance to center: ${distanceToCenter.toFixed(
+        2
+      )}, Center Reward: ${centerReward}`
+    );
+  }
+
   // Check for collision
   if (!collisionOccurred && collision) {
     // Apply negative reward for collision
-    let negativeReward = -10;
-    reward += negativeReward;
-    negativeRewards += negativeReward;
+    reward -= 10;
 
     collisionOccurred = true;
     rectangle.color = "red";
@@ -242,11 +259,9 @@ function update(deltaTime) {
     if (counter > highScore) {
       highScore = counter;
     }
-    counter = 0;
-
     totalGames++;
     totalScore += counter;
-    updateMetrics();
+    counter = 0;
 
     console.log("Collision detected. Rectangles turned red.");
   }
@@ -264,7 +279,7 @@ function update(deltaTime) {
 
     // Apply success reward
     reward += successReward;
-    positiveRewards += successReward;
+
     // Increment score
     counter++;
 
@@ -273,10 +288,21 @@ function update(deltaTime) {
     );
   }
 
+  // Update positive and negative rewards for metrics
+  if (reward > 0) {
+    positiveRewards += reward;
+  } else if (reward < 0) {
+    negativeRewards += reward;
+  }
+
+  // **Modified code to update Q-values only when action is taken or reward is given**
+  if (action === 1 || reward !== 0) {
+    agent.updateQValue(state, action, reward, nextState);
+    console.log("Q-value updated:", { state, action, reward });
+  }
+
+  // Update metrics for display
   updateMetrics();
-  agent.updateQValue(state, action, reward, nextState);
-console.log("UPDATING AGENT", state, action, reward)
-  // Remove the positive reward calculation from every frame
 }
 
 function render() {
@@ -306,17 +332,17 @@ function render() {
 }
 
 function playerPosition(deltaTime) {
+  let reward = 0; // Initialize reward
+
   if (player.y > canvas.height - player.radius) {
     player.velocity = 0;
     player.y = canvas.height - player.radius;
-    negativeRewards += -2;
-    updateMetrics()
+    reward -= 2; // Negative reward for hitting the bottom
   }
   if (player.y < player.radius) {
     player.velocity = 0;
     player.y = player.radius;
-    negativeRewards += -2;
-    updateMetrics();
+    reward -= 2; // Negative reward for hitting the top
   }
 
   if (spacebar) {
@@ -325,7 +351,9 @@ function playerPosition(deltaTime) {
   }
 
   player.y += player.velocity * deltaTime * 60; // Adjust movement by deltaTime
-  player.velocity += 1 * deltaTime * 60; // Gravity effect
+  player.velocity += 0.25 * deltaTime * 60; // Gravity effect
+
+  return reward; // Return the reward
 }
 
 function rectanglePosition(deltaTime) {
@@ -347,6 +375,7 @@ function rectanglePosition(deltaTime) {
     // Reset scoring flags
     rectangle.scored = false;
     rectangle.proximityRewardGiven = false;
+    rectangle.centerRewardGiven = false; // Reset center reward flag
 
     // Reset collision flag and rectangle colors
     collisionOccurred = false;
