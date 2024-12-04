@@ -200,45 +200,33 @@ function update(deltaTime) {
   // Collision detection
   let collision = checkCollision(rectangle) || checkCollision(rectangleTop);
 
-  // Compute distance to gap center
-  let distanceToCenter = Math.abs(dy);
+// Compute distance to gap center
+let distanceToCenter = Math.abs(player.y - (rectangleTop.h + rectangle.y) / 2); // Absolute distance to center
 
-  // Normalize the distance (gapSize / 2 is the maximum possible distance within the gap)
-  let normalizedDistance = distanceToCenter / (gapSize / 2);
+// Calculate proximity reward
+let proximityReward = Math.max(0, 4 - Math.floor(distanceToCenter / 500));
 
-  // Ensure normalizedDistance is between 0 and 1
-  normalizedDistance = Math.min(normalizedDistance, 1);
+// Apply proximity reward only once per gap
+if (!rectangle.proximityRewardGiven && player.x > rectangle.x) {
+  reward += proximityReward;
+  rectangle.proximityRewardGiven = true;
 
-  // Compute proximity reward inversely proportional to the normalized distance
-  let proximityReward = Math.max(
-    0,
-    positiveRewardsMultiplierCenter * (1 - normalizedDistance)
+  console.log(
+    `Proximity Reward Given. Distance to center: ${distanceToCenter.toFixed(
+      2
+    )}, Proximity Reward: ${proximityReward}`
   );
+}
 
-  // Apply proximity reward only once per gap
-  if (!rectangle.proximityRewardGiven && player.x > rectangle.x) {
-    reward += proximityReward;
-    rectangle.proximityRewardGiven = true;
-
-    console.log(
-      `Proximity Reward Given. Distance to center: ${distanceToCenter.toFixed(
-        2
-      )}, Proximity Reward: ${proximityReward.toFixed(2)}`
-    );
-  }
 
   // New code to give reward when distance to gap center is less than 50 pixels
   if (
-    !rectangle.centerRewardGiven &&
-    player.x > rectangle.x &&
-    distanceToCenter < 50
+    distanceToCenter < 10
   ) {
-    let centerReward = 5; // Define the reward value
+    let centerReward = 0.1; // Define the reward value
 
     reward += centerReward;
     positiveRewards += centerReward;
-
-    rectangle.centerRewardGiven = true; // Ensure reward is given only once per gap
 
     console.log(
       `Center Reward Given. Distance to center: ${distanceToCenter.toFixed(
@@ -298,7 +286,7 @@ function update(deltaTime) {
   // **Modified code to update Q-values only when action is taken or reward is given**
   if (action === 1 || reward !== 0) {
     agent.updateQValue(state, action, reward, nextState);
-    console.log("Q-value updated:", { state, action, reward });
+    //console.log("Q-value updated:", { state, action, reward });
   }
 
   // Update metrics for display
