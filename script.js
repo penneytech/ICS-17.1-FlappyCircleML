@@ -86,8 +86,8 @@ class RLAgent {
   }
 
   chooseAction(state) {
-    const qJump = this.qTable[state]?.jump || -Infinity; // Penalize jumping by default
-    const qStay = this.qTable[state]?.stay || 0;
+    const qJump = this.qTable[state]?.jump ?? -Infinity; // Penalize jumping by default
+    const qStay = this.qTable[state]?.stay ?? 0;
 
     if (Math.random() < this.epsilon) {
       // Exploration: random action
@@ -100,21 +100,20 @@ class RLAgent {
 
   updateQValue(state, action, reward, nextState) {
     const maxNextQ = Math.max(
-      this.qTable[nextState]?.jump || 0,
-      this.qTable[nextState]?.stay || 0
+      this.qTable[nextState]?.jump ?? 0,
+      this.qTable[nextState]?.stay ?? 0
     );
     const currentQ =
-      this.qTable[state]?.[action === 1 ? "jump" : "stay"] || 0;
+      this.qTable[state]?.[action === 1 ? "jump" : "stay"] ?? 0;
     const newQ =
       currentQ +
       this.learnRate * (reward + this.discountFactor * maxNextQ - currentQ);
 
-    // Round the Q-value to a fixed number of decimals
+    // Round the Q-value to avoid floating-point precision issues
     const roundedQ = parseFloat(newQ.toFixed(2));
 
     if (!this.qTable[state]) this.qTable[state] = {};
     this.qTable[state][action === 1 ? "jump" : "stay"] = roundedQ;
-
   }
 }
 
@@ -149,42 +148,9 @@ function update(deltaTime) {
   }
 
   // Proceed with game updates
-  let reward = -0.1; // Small time decay penalty
-  reward += playerPosition(deltaTime); // Add reward from player position
+  let reward = playerPosition(deltaTime); // Get reward from player position
 
   const nextState = agent.getState(player, elapsedTime);
-
-  // Negative reward for hitting ground or ceiling
-  if (player.y + player.radius >= canvas.height) {
-    reward -= 20; // Strong penalty for hitting the ground
-    negativeRewards += 20;
-    totalGames++;
-    totalScore += counter;
-    if (counter > highScore) highScore = counter;
-    counter = 0;
-    episodes++;
-  }
-  if (player.y < player.radius) {
-    reward -= 50; // Drastically increase penalty for hitting the ceiling
-    negativeRewards += 50;
-    totalGames++;
-    totalScore += counter;
-    if (counter > highScore) highScore = counter;
-    counter = 0;
-    episodes++;
-  }
-
-  // Positive reward when passing through centerline (y=240)
-  if (
-    (player.y - player.velocity * deltaTime < centerLineY &&
-      player.y >= centerLineY) ||
-    (player.y - player.velocity * deltaTime > centerLineY &&
-      player.y <= centerLineY)
-  ) {
-    reward += 1;
-    positiveRewards += 1;
-    counter++;
-  }
 
   // Update Q-values only if an action was taken or a reward was given
   if (action === 1 || reward !== 0) {
@@ -192,7 +158,7 @@ function update(deltaTime) {
     console.log(
       `Updated Q Values: ${state} ${action} ${reward.toFixed(2)} ${nextState}`
     );
-      }
+  }
 
   // Update metrics
   updateMetrics();
@@ -232,23 +198,42 @@ function playerPosition(deltaTime) {
     player.velocity = 0;
     player.y = canvas.height - player.radius;
     reward -= 20; // Strong penalty for hitting the ground
+    negativeRewards += 20;
+
+    // Reset game state
+    totalGames++;
+    totalScore += counter;
+    if (counter > highScore) highScore = counter;
+    counter = 0;
+    episodes++;
   }
   if (player.y < player.radius) {
     player.velocity = 0;
     player.y = player.radius;
     reward -= 50; // Drastically increase penalty for hitting the ceiling
+    negativeRewards += 50;
+
+    // Reset game state
+    totalGames++;
+    totalScore += counter;
+    if (counter > highScore) highScore = counter;
+    counter = 0;
+    episodes++;
   }
 
+  // Positive reward for being near the centerline
   const centerProximity = Math.abs(player.y - centerLineY);
-  if (centerProximity < 20) {
-    reward += 0.1; // Small reward for staying near the centerline
+  if (centerProximity <= 10) {
+    reward += 1; // Positive reward for staying near the centerline
+    positiveRewards += 1;
+    counter++;
   }
 
   if (spacebar) {
-    player.velocity = -5; // Jump immediately
     if (player.velocity < 0) {
       reward -= 5; // Penalize jumps when already moving upward
     }
+    player.velocity = -5; // Jump immediately
     spacebar = false;
   }
 
