@@ -7,7 +7,7 @@ let counter = 0;
 let episodes = 0;
 let totalGames = 0;
 let totalScore = 0;
-let highScore = 0; // Track the highest score achieved
+let highScore = 0;
 
 let positiveRewards = 0;
 let negativeRewards = 0;
@@ -26,7 +26,7 @@ let dyElem, playeryElem;
 
 // Variables for timing
 let lastTime = 0;
-let lastActionTime = 0; // Track the time since the last action
+let lastJumpTime = 0; // Time when the last jump occurred
 
 function init() {
   canvas = document.getElementById("gameCanvas");
@@ -56,37 +56,35 @@ function init() {
   startGame();
 
   lastTime = performance.now();
-  lastActionTime = lastTime;
+  lastJumpTime = lastTime;
 
   window.requestAnimationFrame(gameLoop);
 }
 
 function startGame() {
-  player = new Circle(canvas.width / 2, canvas.height / 2, 10, "yellow", 0.1);
+  player = new Circle(canvas.width / 2, canvas.height - 20, 10, "yellow", 0);
 }
 
 class RLAgent {
   constructor() {
     this.qTable = {};
-    this.epsilon = 0.5; // Start with high exploration
-    this.learnRate = 0.05; // Lower learning rate for smoother updates
-    this.discountFactor = 0.8; // Reduced discount factor to prioritize immediate rewards
+    this.epsilon = 0.1; // Start with high exploration
+    this.learnRate = 0.2; // Lower learning rate for smoother updates
+    this.discountFactor = 0.8; // Prioritize immediate rewards
   }
 
-  getState(player, elapsedTime) {
+  getState(player, discretizedElapsed) {
     const dy = player.y - centerLineY; // Distance from centerline
-    const velocity = player.velocity;
-    const nearCeiling = player.y < player.radius + 50 ? 1 : 0; // Close to ceiling
-    const nearGround = player.y > canvas.height - player.radius - 50 ? 1 : 0; // Close to ground
-    const inSafeZone = player.y > centerLineY - 50 && player.y < centerLineY + 50 ? 1 : 0;
-    const rising = player.velocity < 0 ? 1 : 0; // Is the player moving up?
+    const playery = player.y;
+    // const inSafeZone = player.y > centerLineY - 50 && player.y < centerLineY + 50 ? 1 : 0;
 
-    // Discretized state includes context
-    return `${Math.floor(dy)},${Math.floor(velocity)},${nearCeiling},${nearGround},${inSafeZone},${rising}`;
-  }
+    // Return the simplified state including discretizedElapsed
+    return `${Math.floor(dy)},${Math.floor(playery)},${discretizedElapsed}`;
+}
+
 
   chooseAction(state) {
-    const qJump = this.qTable[state]?.jump ?? -Infinity; // Penalize jumping by default
+    const qJump = this.qTable[state]?.jump ?? -Infinity;
     const qStay = this.qTable[state]?.stay ?? 0;
 
     if (Math.random() < this.epsilon) {
@@ -103,8 +101,7 @@ class RLAgent {
       this.qTable[nextState]?.jump ?? 0,
       this.qTable[nextState]?.stay ?? 0
     );
-    const currentQ =
-      this.qTable[state]?.[action === 1 ? "jump" : "stay"] ?? 0;
+    const currentQ = this.qTable[state]?.[action === 1 ? "jump" : "stay"] ?? 0;
     const newQ =
       currentQ +
       this.learnRate * (reward + this.discountFactor * maxNextQ - currentQ);
@@ -129,43 +126,54 @@ function gameLoop(timestamp) {
   window.requestAnimationFrame(gameLoop);
 
   const deltaTime = (timestamp - lastTime) / 1000; // Convert to seconds
-  lastTime = timestamp;
 
-  update(deltaTime);
+  update(deltaTime, timestamp);
   render();
+
+  lastTime = timestamp; // Update lastTime after update and render
 }
 
-function update(deltaTime) {
-  const elapsedTime = (lastTime - lastActionTime) / 1000; // Time since last action
+function update(deltaTime, timestamp) {
+  const elapsedSinceJump = (timestamp - lastJumpTime).toFixed(2); // Time since last jump in seconds
+  // Discretize elapsed time into 0.5-second bins
+  const discretizedElapsed = Math.floor(elapsedSinceJump / 0.5);
 
-  // Agent decision-making every frame
-  const state = agent.getState(player, elapsedTime);
+  // Agent decision-making
+  const state = agent.getState(player, discretizedElapsed);
   const action = agent.chooseAction(state);
 
   if (action === 1) {
     spacebar = true;
-    lastActionTime = lastTime; // Reset the action timer
+    lastJumpTime = timestamp; // Reset the jump timer using timestamp
   }
 
   // Proceed with game updates
-  let reward = playerPosition(deltaTime); // Get reward from player position
+  let reward = playerPosition(deltaTime, elapsedSinceJump); // Pass elapsedSinceJump
 
-  const nextState = agent.getState(player, elapsedTime);
+  const nextElapsedSinceJump = ((timestamp - lastJumpTime)).toFixed(2);
+  // const nextDiscretizedElapsed = Math.floor(nextElapsedSinceJump / 0.5);
+  const nextState = agent.getState(player, nextElapsedSinceJump);
 
-  // Update Q-values only if an action was taken or a reward was given
-  if (action === 1 || reward !== 0) {
-    agent.updateQValue(state, action, reward, nextState);
-    console.log(
-      `Updated Q Values: ${state} ${action} ${reward.toFixed(2)} ${nextState}`
-    );
+  // Update Q-values and log only under specific conditions
+
+    if (action == 1 || Math.abs(reward) > 0.1) {
+      agent.updateQValue(state, action, reward, nextState);
+      console.log(
+        `Updated Q Values: ${state} ${action} ${reward} ${nextState}`
+      );
+  
   }
+  
+  //}
 
   // Update metrics
   updateMetrics();
 
   // Gradually decay exploration rate
-  agent.epsilon = Math.max(0.1, agent.epsilon * 0.995);
+ // agent.epsilon = Math.max(0.001, agent.epsilon * 0.995);
 }
+
+
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -187,11 +195,15 @@ function render() {
   drawScores();
 }
 
-function playerPosition(deltaTime) {
-  let reward = -0.1; // Small time decay penalty
-
+function playerPosition(deltaTime, elapsedSinceJump) {
+  let reward = 0; // Small time decay penalty
+  
+  if (player.y > player.radius + 50 && player.y < canvas.height - player.radius - 50) {
+    // reward += 0.1; // Continuous positive reinforcement for staying safe
+    // positiveRewards += 0.1;
+  }
   // Penalty for being close to the ceiling
-  const nearCeilingPenalty = player.y < player.radius + 50 ? -1 : 0;
+  const nearCeilingPenalty = player.y < player.radius + 50 ? -0.1 : 0; // Adjust ceiling margin if needed
   reward += nearCeilingPenalty;
 
   if (player.y > canvas.height - player.radius) {
@@ -207,11 +219,12 @@ function playerPosition(deltaTime) {
     counter = 0;
     episodes++;
   }
+
   if (player.y < player.radius) {
     player.velocity = 0;
     player.y = player.radius;
-    reward -= 50; // Drastically increase penalty for hitting the ceiling
-    negativeRewards += 50;
+    reward -= 5; // Drastically increase penalty for hitting the ceiling
+    negativeRewards += 5;
 
     // Reset game state
     totalGames++;
@@ -221,27 +234,39 @@ function playerPosition(deltaTime) {
     episodes++;
   }
 
+  // // // Positive reward for reaching the top of a hop without touching the ceiling
+  // if (player.velocity > 0 && player.y > player.radius + 50 && player.y < centerLineY && elapsedSinceJump > 0.5) {
+  //   reward += 5; // Reward for successfully reaching the top
+  //   positiveRewards += 1;
+  // }
+
   // Positive reward for being near the centerline
   const centerProximity = Math.abs(player.y - centerLineY);
   if (centerProximity <= 10) {
-    reward += 1; // Positive reward for staying near the centerline
-    positiveRewards += 1;
+    reward += 10; // Positive reward for staying near the centerline
+    positiveRewards += 100;
     counter++;
   }
 
   if (spacebar) {
     if (player.velocity < 0) {
-      reward -= 5; // Penalize jumps when already moving upward
+      reward -= 10; // Penalize jumps when already moving upward
     }
+
+    if (elapsedSinceJump < 0.5) {
+      reward -= 5; // Penalize jumps occurring less than 0.5 seconds after the last jump
+    }
+
     player.velocity = -5; // Jump immediately
     spacebar = false;
   }
 
   player.y += player.velocity * deltaTime * 60; // Adjust movement by deltaTime
-  player.velocity += 0.25 * deltaTime * 60; // Gravity effect
+  player.velocity += 0.60 * deltaTime * 60; // Gravity effect
 
   return reward;
 }
+
 
 function drawScores() {
   ctx.font = "20px Arial";
